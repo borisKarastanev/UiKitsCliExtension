@@ -108,14 +108,14 @@ describe("TemplateService Api", () => {
     describe("Get Available templates", function () {
         let templateService = new TemplateService();
         it("Returns a Template Details array for all available templates", function () {
-            templateService.getAvailableTemplates().then(function (templates) {
+            templateService.getTemplates().then(function (templates) {
                 should.exist(templates);
                 templates.should.be.an("array");
 
                 /*templates.should.contain.a.thing.with.property("name");
-                templates.should.contain.a.thing.with.property("version");
-                templates.should.contain.a.thing.with.property("description");
-                templates.should.contain.a.thing.with.property("templateFlavor");*/
+                 templates.should.contain.a.thing.with.property("version");
+                 templates.should.contain.a.thing.with.property("description");
+                 templates.should.contain.a.thing.with.property("templateFlavor");*/
 
             }).catch(function (err) {
                 should.not.exist(err);
