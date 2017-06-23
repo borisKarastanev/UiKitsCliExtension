@@ -3,23 +3,23 @@ interface ITemplateService {
     /**
      * @description Check templates flavors E.g [@angularTs, vanillaJs, Ts ]
      * @param templateName
-     * @returns String
+     * @returns {Promise<string>}
      */
-    checkTemplateFlavor(templateName: string): string;
+    checkTemplateFlavor(templateName: string): any;
 
     /**
      * @description Get template current version
      * @param templateName
-     * @returns String
+     * @returns {Promise<string>}
      */
-    getTemplateVersion(templateName: string): string;
+    getTemplateVersion(templateName: string): any;
 
     /**
      * @description Get template description
      * @param templateName
-     * @returns String
+     * @returns {Promise<string>}
      */
-    getTemplateDescription(templateName: string): string;
+    getTemplateDescription(templateName: string): any;
 
     /**
      * @description The method returns details about an app template.
@@ -29,10 +29,17 @@ interface ITemplateService {
     getAppTemplateDetails(templateName: string): any;
 
     /**
+     * @description Get template github url
+     * @param templateName
+     * @returns {Promise<String>}
+     */
+    getTemplateGitUrl(templateName: string): any;
+
+    /**
      * @description Search for all downloaded templates
      * @return Promise
      */
-    getAvailableTemplates(): any;
+    getTemplates(): any;
 
     /**
      * @description Download an app template in your local project folder
