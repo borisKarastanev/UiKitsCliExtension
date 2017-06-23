@@ -1,182 +1,283 @@
-import * as path from "path";
-import * as fs from "fs";
-import * as childProcess from "child_process";
+import * as path from 'path';
+import * as fs from 'fs';
+import * as childProcess from 'child_process';
+import * as https from 'https';
+
+const Config = require('../../config.js');
+const NodeCache = require("node-cache");
+const tmpCache = new NodeCache();
 
 export class TemplateService implements ITemplateService {
     constructor() {
+        for (let i = 0; i < Config.appTemplates.length; i++) {
+            this.tmpPackageJsonFromSrc(Config.appTemplates[i])
+                .then(function () {
+                    console.log('Cached Template Data');
+                })
+                .catch(function (err) {
+                    console.error({msg: 'Error when trying to cache templates', error: err});
+                });
+        }
     }
 
-    /*private _readTemplatePackageJson(tempPath: string) {
-        let isDir = fs.statSync(tempPath).isDirectory(),
-            tempContent;
+    // TODO make private
+    public base64Decode(encoded: string) {
+        let buf = Buffer.from(encoded, 'base64');
+        return buf.toString('utf8');
+    }
 
-        if (isDir) {
-            tempContent = fs.readdirSync(tempPath);
+    // TODO make private
+    public tmpPackageJsonFromSrc(templateName: string) {
+        let that = this,
+            content: any,
+            options: any = {
+                host: 'api.github.com',
+                path: '/repos/NativeScript/' + templateName + '/contents/package.json?ref=master',
+                headers: {
+                    'user-agent': 'ui-kits-cli-extension'
+                }
+            };
 
-            if (tempContent.indexOf("package.json") > -1) {
-                return fs.readFileSync(path.join(tempPath, "package.json"), "utf8");
-            } else {
-                return new Error("Missing package.json file!");
-            }
-        }
-    }*/
+        return new Promise(function (resolve, reject) {
+            https.request(options, function (res) {
+                let str = '';
+
+                res.on('error', function (err) {
+                    reject(err);
+                });
+
+                res.on('data', function (chunk) {
+                    str += chunk;
+                });
+
+                res.on('end', function () {
+                    try {
+                        content = that.base64Decode(JSON.parse(str).content);
+                        content = JSON.parse(content);
+                        tmpCache.set(templateName + 'Cache', content, Config.options.cacheTime);
+                        resolve(content);
+                    } catch (err) {
+                        // Handle API rate error
+                        let errMsg = JSON.parse(str).message;
+                        reject({
+                            template: templateName,
+                            message: errMsg,
+                            error: err
+                        });
+                    }
+                });
+            }).end();
+        });
+    }
+
+    public imageEncode(filePath: string) {
+        let bitmap = fs.readFileSync(filePath);
+
+        return new Buffer(bitmap).toString('base64');
+    }
 
     public getTemplateVersion(templateName: string) {
-        /*let tempPath = path.join(__dirname.replace("services", "templates"), templateName),
+        let that = this,
             packageJsonContent: any,
             version: any;
+        return new Promise(function (resolve, reject) {
+            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
+                if (!err) {
+                    if (value === undefined) {
+                        // key not found
+                        console.log('===== not found ===');
+                        that.tmpPackageJsonFromSrc(templateName)
+                            .then(function (pj) {
+                                packageJsonContent = pj;
+                                version = packageJsonContent.version;
+                                resolve(version);
+                            })
+                            .catch(function (error) {
+                                reject(error);
+                            });
+                    } else {
+                        console.log('=====Loading from Cached ===');
+                        version = value.version;
+                        resolve(version);
+                    }
+                } else {
+                    reject({message: "Error retrieving cache for " + templateName, error: err});
+                }
+            });
+        });
+    }
 
-        try {
-            packageJsonContent = this._readTemplatePackageJson(tempPath);
-            packageJsonContent = JSON.parse(packageJsonContent);
-            version = packageJsonContent.version;
-        } catch (err) {
-            version = packageJsonContent;
-        }
+    public getTemplateGitUrl(templateName: string) {
+        let that = this,
+            packageJsonContent: any,
+            gitUrl: any;
 
-        return version;*/
+        return new Promise(function (resolve, reject) {
+            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
+                if (!err) {
+                    if (value === undefined) {
+                        // key not found
+                        console.log('===== not found ===');
+                        that.tmpPackageJsonFromSrc(templateName)
+                            .then(function (pj) {
+                                packageJsonContent = pj;
+                                gitUrl = packageJsonContent.repository.url;
+                                resolve(gitUrl);
+                            })
+                            .catch(function (error) {
+                                reject({message: 'Error retrieving data from source', error: error});
+                            });
 
-        return "2.0.1";
+                    } else {
+                        gitUrl = value.repository.url;
+                        resolve(gitUrl);
+                    }
+                } else {
+                    reject({message: "Error retrieving cache for " + templateName, error: err});
+                }
+
+            });
+        });
     }
 
     public getTemplateDescription(templateName: string) {
-        /*let tempPath = path.join(__dirname.replace("services", "templates"), templateName),
+        let that = this,
             packageJsonContent: any,
             description: any;
 
-        try {
-            packageJsonContent = this._readTemplatePackageJson(tempPath);
-            packageJsonContent = JSON.parse(packageJsonContent);
-            description = packageJsonContent.description;
-        } catch (err) {
-            description = packageJsonContent;
-        }
-
-        return description;*/
-
-        return "The coolest template ever";
+        return new Promise(function (resolve, reject) {
+            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
+                if (!err) {
+                    if (value === undefined) {
+                        // key not found
+                        console.log('===== not found ===');
+                        that.tmpPackageJsonFromSrc(templateName)
+                            .then(function (pj) {
+                                packageJsonContent = pj;
+                                description = packageJsonContent.description;
+                                resolve(description);
+                            })
+                            .catch(function (error) {
+                                reject(error);
+                            });
+                    } else {
+                        console.log('=====Loading from Cached ===');
+                        description = value.description;
+                        resolve(description);
+                    }
+                } else {
+                    reject({message: "Error retrieving cache for " + templateName, error: err});
+                }
+            });
+        });
     }
 
     public checkTemplateFlavor(templateName: string) {
-        /*let tempPath = path.join(__dirname.replace("services", "templates"), templateName),
+        let that = this,
             packageJsonContent: any,
             dependencies: any,
             devDependencies: any;
 
-        try {
-            packageJsonContent = this._readTemplatePackageJson(tempPath);
-            packageJsonContent = JSON.parse(packageJsonContent);
-        } catch (err) {
-            return packageJsonContent;
-        }
+        return new Promise(function (resolve, reject) {
+            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
+                if (!err) {
+                    if (value === undefined) {
+                        // key not found
+                        console.log('===== not found ===');
+                        that.tmpPackageJsonFromSrc(templateName)
+                            .then(function (pj) {
+                                packageJsonContent = pj;
+                                dependencies = Object.keys(packageJsonContent.dependencies);
+                                devDependencies = Object.keys(packageJsonContent.devDependencies);
 
-        dependencies = Object.keys(packageJsonContent.dependencies);
-        devDependencies = Object.keys(packageJsonContent.devDependencies);
+                                if (dependencies.indexOf("nativescript-angular") > -1 || dependencies.indexOf("@angular") > -1) {
+                                    resolve("Angular & TypeScript");
+                                } else if (devDependencies.indexOf("typescript") > -1 || devDependencies.indexOf("nativescript-dev-typescript") > -1) {
+                                    resolve("TypeScript");
+                                } else {
+                                    resolve("JavaScript");
+                                }
+                            })
+                            .catch(function (error) {
+                                reject(error);
+                            });
+                    } else {
+                        console.log('=====Loading from Cached ===');
+                        dependencies = Object.keys(value.dependencies);
+                        devDependencies = Object.keys(value.devDependencies);
 
-        if (dependencies.indexOf("nativescript-angular") > -1 || dependencies.indexOf("@angular") > -1) {
-            return ("Angular 2 & TypeScript");
-        } else if (devDependencies.indexOf("typescript") > -1 || devDependencies.indexOf("nativescript-dev-typescript") > -1) {
-            return ("Vanilla TypeScript");
-        } else {
-            return ("Vanilla JavaScript");
-        }*/
-
-        return "@angular + TypeScript";
-
+                        if (dependencies.indexOf("nativescript-angular") > -1 || dependencies.indexOf("@angular") > -1) {
+                            resolve("Angular & TypeScript");
+                        } else if (devDependencies.indexOf("typescript") > -1 || devDependencies.indexOf("nativescript-dev-typescript") > -1) {
+                            resolve("TypeScript");
+                        } else {
+                            resolve("JavaScript");
+                        }
+                    }
+                } else {
+                    reject({message: "Error retrieving cache for " + templateName, error: err});
+                }
+            });
+        });
     }
 
     public getAppTemplateDetails(templateName: string) {
         let that = this,
-            version: string,
-            flavor: string,
-            description: string,
-            templateDetails: any;
+            templateDetails: any = {};
+
+        templateDetails.name = templateName;
 
         return new Promise(function (resolve, reject) {
-            try {
-                version = that.getTemplateVersion(templateName);
-                flavor = that.checkTemplateFlavor(templateName);
-                description = that.getTemplateDescription(templateName);
-            } catch (err) {
-                reject(err);
-            }
-
-            templateDetails = {
-                name: templateName,
-                description: description,
-                version: version,
-                templateFlavor: flavor,
-                type: "App template"
-            };
-
-            resolve(templateDetails);
-
+            that.getTemplateDescription(templateName)
+                .then(function (desc) {
+                    templateDetails.description = desc;
+                    return that.getTemplateVersion(templateName);
+                })
+                .then(function (version) {
+                    templateDetails.version = version;
+                    return that.getTemplateGitUrl(templateName);
+                })
+                .then(function (gitUrl) {
+                    templateDetails.gitUrl = gitUrl;
+                    return that.checkTemplateFlavor(templateName);
+                })
+                .then(function (flav) {
+                    templateDetails.flavor = flav;
+                    resolve(templateDetails);
+                })
+                .catch(function (err) {
+                    reject(err);
+                });
         });
     }
 
-    public getAvailableTemplates() {
-        /*let that = this,
-            tempPath = path.join(__dirname.replace("services", "templates")),
-            tempDetails: any = [];
+    public getTemplates() {
+        let that = this,
+            tempDetails: any = [],
+            promises: any = [];
 
         return new Promise(function (resolve, reject) {
-            fs.readdir(tempPath, function (err, content) {
-                if (err) {
-                    reject(err);
-                } else {
-                    for (let i = 0; i < content.length; i++) {
-                        let isDir = fs.statSync(path.join(tempPath, content[i])).isDirectory();
-
-                        if (isDir) {
-                            that.getAppTemplateDetails(content[i]).then(function (data) {
-                                tempDetails.push(data);
-                            }).catch(function (error: any) {
-                                reject(error);
-                            });
-                        }
-                    }
+            for (let i = 0; i < Config.appTemplates.length; i++) {
+                promises.push(
+                    that.getAppTemplateDetails(Config.appTemplates[i])
+                        .then(function (details) {
+                            tempDetails.push(details);
+                        })
+                        .catch(function (err) {
+                            reject(err);
+                        })
+                );
+            }
+            Promise.all(promises)
+                .then(function () {
                     resolve(tempDetails);
-                }
-            });
-        });*/
-
-        return new Promise(function (resolve, reject) {
-            let tempDetails: any = [
-                {   name: 'Telerik.Mobile.NS.TS.NG2.Empty',
-                    description: 'Nativescript empty-ng2-ts project template',
-                    version: '2.0.1',
-                    templateFlavor: 'Angular 2 & TypeScript',
-                    type: "App template"
-                },
-                {   name: 'template-hello-world-ng',
-                    description: 'NativeScript Angular Hello World template',
-                    version: '1.3.5',
-                    templateFlavor: 'Angular 2 & TypeScript',
-                    type: "App template"
-                },
-                {
-                    name: 'page-master-detail-template',
-                    description: 'NativeScript Angular Master Details',
-                    version: '1.0.0',
-                    templateFlavor: 'Vanilla TypeScript',
-                    type: "Page template"
-                },
-                {
-                    name: 'page-login-template',
-                    description: 'NativeScript Angular Master Details',
-                    version: '1.2.0',
-                    templateFlavor: 'Vanilla JavaScript',
-                    type: "Page template"
-                }
-            ];
-
-            resolve(tempDetails);
+                });
         });
     }
 
     public downloadAppTemplate(url: string) {
-        let command = "git clone " + url,
-            templatesDir = __dirname.replace("services", "templates"), // Temp hack
+        let command = 'git clone ' + url,
+            templatesDir = __dirname.replace('services', 'templates'), // Temp hack
             exists;
 
         try {
@@ -196,22 +297,21 @@ export class TemplateService implements ITemplateService {
                 }
             });
         } else {
-            console.error("Missing templates directory");
+            console.error('Missing templates directory');
         }
     }
 
     public getPageTemplateDetails(templateName: string) {
-        let that = this,
-            version: string,
+        let version: string,
             flavor: string,
             description: string,
             templateDetails: any;
 
         return new Promise(function (resolve, reject) {
             try {
-                version = that.getTemplateVersion(templateName);
-                flavor = that.checkTemplateFlavor(templateName);
-                description = that.getTemplateDescription(templateName);
+                //version = that.getTemplateVersion(templateName);
+                //flavor = that.checkTemplateFlavor(templateName);
+                //description = that.getTemplateDescription(templateName);
             } catch (err) {
                 reject(err);
             }
@@ -221,7 +321,9 @@ export class TemplateService implements ITemplateService {
                 description: description,
                 version: version,
                 templateFlavor: flavor,
-                type: "Page template"
+                gitUrl: 'https://github.com/NativeScript/template-drawer-navigation-ts.git',
+                type: 'Page template',
+                resources: []
             };
 
             resolve(templateDetails);
@@ -237,12 +339,12 @@ export class TemplateService implements ITemplateService {
             fs.mkdir(appPath, '0744', function (err) {
                 if (err && err.code === 'EEXIST') {
                     reject({
-                        message: appName + " App already exists",
+                        message: appName + ' App already exists',
                         error: err
                     });
                 } else {
                     resolve({
-                        message: "Successfully created " + appName + " App",
+                        message: 'Successfully created ' + appName + ' App',
                         appPath: appPath
                     });
                 }
@@ -262,11 +364,11 @@ export class TemplateService implements ITemplateService {
             }
 
             if (!exists.isDirectory()) {
-                reject({message: "Invalid Path"});
+                reject({message: 'Invalid Path'});
             } else {
                 // TODO: add Page logic here
                 resolve({
-                    message: "Page" + pageName + " added successfully!",
+                    message: 'Page' + pageName + ' added successfully!',
                     pagePath: pagePath
                 });
             }
@@ -274,4 +376,4 @@ export class TemplateService implements ITemplateService {
     }
 }
 
-$injector.register("templateService", TemplateService);
+$injector.register('templateService', TemplateService);
