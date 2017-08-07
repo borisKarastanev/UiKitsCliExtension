@@ -1,6 +1,6 @@
 {
   "name": "ui-kits-cli-extension",
-  "version": "0.1.5",
+  "version": "1.0.0",
   "description": "CLI extension for the NatvieScript CLI",
   "main": "lib/bootstrap.js",
   "scripts": {
@@ -25,6 +25,7 @@
     "chai": "3.5.0",
     "chai-as-promised": "6.0.0",
     "chai-things": "^0.2.0",
+    "global-modules-path": "2.0.0",
     "grunt": "1.0.1",
     "grunt-contrib-clean": "1.0.0",
     "grunt-contrib-copy": "1.0.0",
@@ -43,6 +44,10 @@
     "typescript": "2.1.5"
   },
   "dependencies": {
-    "node-cache": "^4.1.1"
+    "lodash.indexof": "^4.0.5",
+    "lodash.sortby": "^4.7.0",
+    "node-cache": "^4.1.1",
+    "request": "^2.81.0",
+    "request-promise": "^4.2.1"
   }
 }
