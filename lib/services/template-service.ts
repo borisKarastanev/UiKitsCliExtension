@@ -1,72 +1,153 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as childProcess from 'child_process';
-import * as https from 'https';
 
+const request = require('request-promise');
 const Config = require('../../config.js');
+const Backup = require('../../consts/backup-data');
 const NodeCache = require("node-cache");
 const tmpCache = new NodeCache();
+const _indexof = require('lodash.indexof');
+const _sortby = require('lodash.sortby');
 
 export class TemplateService implements ITemplateService {
     constructor() {
-        for (let i = 0; i < Config.appTemplates.length; i++) {
-            this.tmpPackageJsonFromSrc(Config.appTemplates[i])
-                .then(function () {
-                    console.log('Cached Template Data');
-                })
-                .catch(function (err) {
-                    console.error({msg: 'Error when trying to cache templates', error: err});
-                });
-        }
     }
 
-    // TODO make private
-    public base64Decode(encoded: string) {
-        let buf = Buffer.from(encoded, 'base64');
-        return buf.toString('utf8');
+    public _sortTmpData(templates: Array<any>) {
+        let flavOrder: Array<string> = ['JavaScript', 'TypeScript', 'Angular & TypeScript'],
+            typeOrder: Array<string> = ['Blank', 'Navigation Drawer', 'Tabs', 'Master-Detail with Firebase'],
+            sortedByType: Array<any>,
+            sortByFlav: Array<any>;
+
+        sortedByType = _sortby(templates, function (temp: any) {
+            return _indexof(typeOrder, temp.displayName);
+        });
+
+        sortByFlav = _sortby(sortedByType, function (temp: any) {
+            return _indexof(flavOrder, temp.templateFlavor);
+        });
+
+        return sortByFlav;
     }
 
-    // TODO make private
-    public tmpPackageJsonFromSrc(templateName: string) {
-        let that = this,
-            content: any,
-            options: any = {
-                host: 'api.github.com',
-                path: '/repos/NativeScript/' + templateName + '/contents/package.json?ref=master',
-                headers: {
-                    'user-agent': 'ui-kits-cli-extension'
-                }
-            };
+    public _getTemplatesNames() {
+        let repos: Array<any> = [
+            'template-drawer-navigation',
+            'template-tab-navigation',
+            'template-master-detail',
+            'template-blank',
+            'template-drawer-navigation-ts',
+            'template-master-detail-ts',
+            'template-blank-ts',
+            'template-tab-navigation-ts',
+            'template-drawer-navigation-ng',
+            'template-tab-navigation-ng',
+            'template-master-detail-ng',
+            'template-blank-ng'
+        ];
 
         return new Promise(function (resolve, reject) {
-            https.request(options, function (res) {
-                let str = '';
+            if (!repos || typeof repos === 'undefined') {
+                reject('Error retrieving Template Name');
+            } else {
+                resolve(repos);
+            }
+        });
+    }
 
-                res.on('error', function (err) {
+    public _getTmpAssetsContent(templateName: string) {
+        let that = this,
+            platforms: any = {};
+        return request({
+            method: "GET",
+            uri: 'https://api.github.com/repos/NativeScript/' + templateName + '/contents/tools/assets',
+            json: true,
+            resolveWithFullResponse: true,
+            headers: {
+                'user-agent': 'nativescript-starter-kits'
+            }
+        })
+            .then(function (res: any) {
+                for (let i = 0; i < res.body.length; i++) {
+                    if (res.body[i].name.indexOf('phone') === -1) {
+                        let platform = res.body[i].name.split('-').pop().split('.').shift();
+                        if (platform !== 'android' || platform !== 'ios') {
+                            let rep = platform.match(/^(?!android|ios).*$/g);
+                            platform = platform.replace(rep, 'thumbnail');
+                        }
+
+                        platforms[platform] = res.body[i].name;
+                    }
+                }
+                return that.tmpResourcesFromSrc(templateName, platforms);
+
+            })
+            .catch(function (err: any) {
+                return {message: 'Error retrieving assets from repository', err: err};
+            });
+    }
+
+    public tmpPackageJsonFromSrc(templateName: string) {
+        let content: any;
+        return request({
+            method: 'GET',
+            uri: 'https://raw.githubusercontent.com/NativeScript/' + templateName + '/master/package.json',
+            json: true,
+            resolveWithFullResponse: true,
+            headers: {
+                'user-agent': 'nativescript-starter-kits'
+            }
+        })
+            .then(function (res: any) {
+                content = res.body;
+                if (content.hasOwnProperty('templateType')) {
+                    return content;
+                }
+            })
+            .catch(function (err: any) {
+                return {
+                    message: 'Error retrieving ' + templateName + ' package.json from src',
+                    err: err
+                };
+            });
+    }
+
+    public tmpResourcesFromSrc(templateName: string, asset: any) {
+        let content: any = {},
+            promises: Array<any> = [];
+        return new Promise(function (resolve, reject) {
+            for (let key in asset) {
+                if (asset.hasOwnProperty(key)) {
+                    promises.push(
+                        request({
+                            method: 'GET',
+                            uri: 'https://raw.githubusercontent.com/NativeScript/' + templateName + '/master/tools/assets/' + asset[key],
+                            resolveWithFullResponse: true,
+                            encoding: 'binary',
+                            headers: {
+                                'user-agent': 'nativescript-starter-kits'
+                            }
+                        })
+                            .then(function (res: any) {
+                                content[key] = 'data:image/png;base64,' + new Buffer(res.body.toString(), 'binary').toString('base64');
+                            })
+                            .catch(function (err: any) {
+                                return {
+                                    message: 'Error retrieving ' + templateName + ' assets from source',
+                                    err: err
+                                };
+                            }));
+
+                }
+            }
+            Promise.all(promises)
+                .then(function () {
+                    resolve(content);
+                })
+                .catch(function (err) {
                     reject(err);
                 });
-
-                res.on('data', function (chunk) {
-                    str += chunk;
-                });
-
-                res.on('end', function () {
-                    try {
-                        content = that.base64Decode(JSON.parse(str).content);
-                        content = JSON.parse(content);
-                        tmpCache.set(templateName + 'Cache', content, Config.options.cacheTime);
-                        resolve(content);
-                    } catch (err) {
-                        // Handle API rate error
-                        let errMsg = JSON.parse(str).message;
-                        reject({
-                            template: templateName,
-                            message: errMsg,
-                            error: err
-                        });
-                    }
-                });
-            }).end();
         });
     }
 
@@ -76,148 +157,34 @@ export class TemplateService implements ITemplateService {
         return new Buffer(bitmap).toString('base64');
     }
 
-    public getTemplateVersion(templateName: string) {
-        let that = this,
-            packageJsonContent: any,
-            version: any;
-        return new Promise(function (resolve, reject) {
-            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
-                if (!err) {
-                    if (value === undefined) {
-                        // key not found
-                        console.log('===== not found ===');
-                        that.tmpPackageJsonFromSrc(templateName)
-                            .then(function (pj) {
-                                packageJsonContent = pj;
-                                version = packageJsonContent.version;
-                                resolve(version);
-                            })
-                            .catch(function (error) {
-                                reject(error);
-                            });
-                    } else {
-                        console.log('=====Loading from Cached ===');
-                        version = value.version;
-                        resolve(version);
-                    }
-                } else {
-                    reject({message: "Error retrieving cache for " + templateName, error: err});
-                }
-            });
+    public checkTemplateFlavor(packageJson: any) {
+        return new Promise(function (resolve) {
+            if (packageJson.name.indexOf("-ng") > -1) {
+                resolve("Angular & TypeScript");
+            } else if (packageJson.name.indexOf("-ts") > -1) {
+                resolve("TypeScript");
+            } else {
+                resolve("JavaScript");
+            }
         });
     }
 
-    public getTemplateGitUrl(templateName: string) {
-        let that = this,
-            packageJsonContent: any,
-            gitUrl: any;
+    public getTemplateMetaData(packageJson: any) {
+        let meta: any = {};
 
         return new Promise(function (resolve, reject) {
-            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
-                if (!err) {
-                    if (value === undefined) {
-                        // key not found
-                        console.log('===== not found ===');
-                        that.tmpPackageJsonFromSrc(templateName)
-                            .then(function (pj) {
-                                packageJsonContent = pj;
-                                gitUrl = packageJsonContent.repository.url;
-                                resolve(gitUrl);
-                            })
-                            .catch(function (error) {
-                                reject({message: 'Error retrieving data from source', error: error});
-                            });
+            if (typeof packageJson === 'undefined') {
+                reject({message: 'Missing package.json'});
+            } else {
+                meta.name = packageJson.name;
+                meta.displayName = packageJson.displayName;
+                meta.version = packageJson.version;
+                meta.description = packageJson.description;
+                meta.gitUrl = packageJson.repository.url;
+                meta.type = packageJson.templateType;
 
-                    } else {
-                        gitUrl = value.repository.url;
-                        resolve(gitUrl);
-                    }
-                } else {
-                    reject({message: "Error retrieving cache for " + templateName, error: err});
-                }
-
-            });
-        });
-    }
-
-    public getTemplateDescription(templateName: string) {
-        let that = this,
-            packageJsonContent: any,
-            description: any;
-
-        return new Promise(function (resolve, reject) {
-            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
-                if (!err) {
-                    if (value === undefined) {
-                        // key not found
-                        console.log('===== not found ===');
-                        that.tmpPackageJsonFromSrc(templateName)
-                            .then(function (pj) {
-                                packageJsonContent = pj;
-                                description = packageJsonContent.description;
-                                resolve(description);
-                            })
-                            .catch(function (error) {
-                                reject(error);
-                            });
-                    } else {
-                        console.log('=====Loading from Cached ===');
-                        description = value.description;
-                        resolve(description);
-                    }
-                } else {
-                    reject({message: "Error retrieving cache for " + templateName, error: err});
-                }
-            });
-        });
-    }
-
-    public checkTemplateFlavor(templateName: string) {
-        let that = this,
-            packageJsonContent: any,
-            dependencies: any,
-            devDependencies: any;
-
-        return new Promise(function (resolve, reject) {
-            tmpCache.get(templateName + 'Cache', function (err: any, value: any) {
-                if (!err) {
-                    if (value === undefined) {
-                        // key not found
-                        console.log('===== not found ===');
-                        that.tmpPackageJsonFromSrc(templateName)
-                            .then(function (pj) {
-                                packageJsonContent = pj;
-                                dependencies = Object.keys(packageJsonContent.dependencies);
-                                devDependencies = Object.keys(packageJsonContent.devDependencies);
-
-                                if (dependencies.indexOf("nativescript-angular") > -1 || dependencies.indexOf("@angular") > -1) {
-                                    resolve("Angular & TypeScript");
-                                } else if (devDependencies.indexOf("typescript") > -1 || devDependencies.indexOf("nativescript-dev-typescript") > -1) {
-                                    resolve("TypeScript");
-                                } else {
-                                    resolve("JavaScript");
-                                }
-                            })
-                            .catch(function (error) {
-                                reject(error);
-                            });
-                    } else {
-                        console.log('=====Loading from Cached ===');
-                        dependencies = Object.keys(value.dependencies);
-                        devDependencies = Object.keys(value.devDependencies);
-
-                        if (dependencies.indexOf("nativescript-angular") > -1 || dependencies.indexOf("@angular") > -1) {
-                            resolve("Angular & TypeScript");
-                        } else if (devDependencies.indexOf("typescript") > -1 || devDependencies.indexOf("nativescript-dev-typescript") > -1) {
-                            resolve("TypeScript");
-                        } else {
-                            resolve("JavaScript");
-                        }
-                    }
-                } else {
-                    reject({message: "Error retrieving cache for " + templateName, error: err});
-                }
-            });
+                resolve(meta);
+            }
         });
     }
 
@@ -225,53 +192,91 @@ export class TemplateService implements ITemplateService {
         let that = this,
             templateDetails: any = {};
 
-        templateDetails.name = templateName;
-
         return new Promise(function (resolve, reject) {
-            that.getTemplateDescription(templateName)
-                .then(function (desc) {
-                    templateDetails.description = desc;
-                    return that.getTemplateVersion(templateName);
+            that.tmpPackageJsonFromSrc(templateName)
+                .then(function (pj: any) {
+                    let packageJson = pj;
+                    that.getTemplateMetaData(packageJson)
+                        .then(function (data: any) {
+                            templateDetails.name = data.name;
+                            templateDetails.displayName = data.displayName;
+                            templateDetails.description = data.description;
+                            templateDetails.version = data.version;
+                            templateDetails.gitUrl = data.gitUrl;
+                            templateDetails.type = data.type;
+
+                            return that.checkTemplateFlavor(packageJson);
+                        })
+                        .then(function (flav) {
+                            templateDetails.templateFlavor = flav;
+                            return that._getTmpAssetsContent(templateName);
+                        })
+                        .then(function (resources) {
+                            templateDetails.resources = resources;
+                            resolve(templateDetails);
+                        })
+                        .catch(function (error) {
+                            reject({
+                                message: 'Error retrieving data for ' + templateName,
+                                error: error
+                            });
+                        });
                 })
-                .then(function (version) {
-                    templateDetails.version = version;
-                    return that.getTemplateGitUrl(templateName);
-                })
-                .then(function (gitUrl) {
-                    templateDetails.gitUrl = gitUrl;
-                    return that.checkTemplateFlavor(templateName);
-                })
-                .then(function (flav) {
-                    templateDetails.flavor = flav;
-                    resolve(templateDetails);
-                })
-                .catch(function (err) {
-                    reject(err);
+                .catch(function (error: any) {
+                    reject(error);
                 });
         });
     }
 
     public getTemplates() {
         let that = this,
-            tempDetails: any = [],
-            promises: any = [];
+            tempDetails: Array<any> = [],
+            promises: Array<any> = [];
 
         return new Promise(function (resolve, reject) {
-            for (let i = 0; i < Config.appTemplates.length; i++) {
-                promises.push(
-                    that.getAppTemplateDetails(Config.appTemplates[i])
-                        .then(function (details) {
-                            tempDetails.push(details);
-                        })
-                        .catch(function (err) {
-                            reject(err);
-                        })
-                );
-            }
-            Promise.all(promises)
-                .then(function () {
-                    resolve(tempDetails);
-                });
+            tmpCache.get("tempDetails", function (err: any, value: any) {
+                if (!err) {
+                    if (value === undefined) {
+                        that._getTemplatesNames()
+                            .then(function (repos: any) {
+                                if (repos.err && repos.err.statusCode === 403) {
+                                    resolve(Backup.fallback);
+                                } else {
+                                    return repos;
+                                }
+                            })
+                            .then(function (names: any) {
+                                for (let i = 0; i < names.length; i++) {
+                                    promises.push(
+                                        that.getAppTemplateDetails(names[i])
+                                            .then(function (details) {
+                                                tempDetails.push(details);
+                                            })
+                                            .catch(function (error) {
+                                                reject(error);
+                                            })
+                                    );
+                                }
+                                Promise.all(promises)
+                                    .then(function () {
+                                        tempDetails = that._sortTmpData(tempDetails);
+                                        tmpCache.set('tempDetails', tempDetails, Config.options.cacheTime);
+                                        resolve(tempDetails);
+
+                                    })
+                                    .catch(function (error: any) {
+                                        reject(error);
+                                    });
+                            })
+                            .catch(function (error: any) {
+                                console.error(error);
+                            });
+                    } else {
+                        // Load data from cache
+                        resolve(value);
+                    }
+                }
+            });
         });
     }
 
